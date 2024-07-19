@@ -190,7 +190,8 @@ local rot = { 0, 0, 0 }
 
 -- ------------------------- _CalculateOrientation() ------------------------ --
 
-local mouseX, mouseY = GetMouseInput()
+local MOUSE_MULT = -0.01
+local ctrlRotX, ctrlRotY = 0, 0
 local frameTime = 0
 
 -- -------------------------------------------------------------------------- --
@@ -278,11 +279,19 @@ function SimpleFirstPerson:_HandleSprintFOV()
 end
 
 function SimpleFirstPerson:_CalculateOrientation()
-	mouseX, mouseY = GetMouseInput()
+	-- Controller handler
+	if IsUsingJoystick(0) then
+		ctrlRotX, ctrlRotY = GetStickValue(18, 0), GetStickValue(19, 0)
+		ctrlRotX, ctrlRotY = ctrlRotX * 15, ctrlRotY * 15
+	else
+		ctrlRotX, ctrlRotY = GetMouseInput()
+		ctrlRotX, ctrlRotY = ctrlRotX * 30 * MOUSE_MULT, ctrlRotY * 30 * MOUSE_MULT
+	end
+
 	frameTime = GetFrameTime()
 
-	self.yaw = self.yaw - mouseX * self.sensitivity * frameTime / 2
-	self.pitch = self.pitch - mouseY * self.sensitivity * frameTime / 2
+	self.yaw = self.yaw + ctrlRotX * self.sensitivity * frameTime
+	self.pitch = self.pitch + ctrlRotY * self.sensitivity * frameTime
 
 	-- self.unclampedYaw = self.unclampedYaw
 	-- 	+ -mouseX * MOUSE_SPEED_MULTIPLIER * self.sensitivity
