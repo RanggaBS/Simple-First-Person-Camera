@@ -1,0 +1,71 @@
+---@diagnostic disable: missing-return
+
+-- DO NOT LOAD THIS SCRIPT!
+
+---@alias SimpleCustomThirdPerson_options { sensitivity: number, yawOffsetDegree: number, heightOffset: number, posDist: number, lookDist: number, maxZoom: number, zoomMult: number, enableSprintFOV: boolean, baseFOV: number, sprintFOVOffset: number }
+---@alias SimpleCustomThirdPerson_ShoulderSide "left"|"right"
+---@alias SimpleCustomThirdPerson_ShoulderSideWithCenter SimpleCustomThirdPerson_ShoulderSide|"center"
+
+---@class (exact) SimpleCustomThirdPerson
+---@field private __index SimpleCustomThirdPerson
+---@field private _isSimpleFirstPersonInstalled boolean
+---@field private _isCameraFOVInstalled boolean
+---@field private _maxYaw number
+---@field private _maxPitch number
+---@field private _CheckSimpleFirstPersonInstalled fun(): boolean
+---@field private _CheckCameraFOVInstalled fun(): boolean
+---@field private _HandleSprintFOV fun(self: SimpleCustomThirdPerson): nil
+---@field private _CalculateOrientation fun(self: SimpleCustomThirdPerson): nil
+---@field private _CalculateActualYaw fun(self: SimpleCustomThirdPerson): nil
+---@field private _CalculateZoom fun(self: SimpleCustomThirdPerson): nil
+---@field private _HandleShoulderSwap fun(self: SimpleCustomThirdPerson): nil
+---@field private _GetVehicleHeightOffset fun(self: SimpleCustomThirdPerson, vehicleId: integer): number
+---@field private _CalculateCamPosAndLook fun(self: SimpleCustomThirdPerson): nil
+---@field private _HandleHeadBobbing fun(self: SimpleCustomThirdPerson): nil
+---@field isEnabled boolean
+---@field yaw number
+---@field actualYaw number
+---@field pitch number
+---@field pos ArrayOfNumbers3D
+---@field look ArrayOfNumbers3D
+---@field useInvertedControlX boolean
+---@field useInvertedControlY boolean
+---@field sensitivity number
+---@field heightOffset number
+---@field yawOffsetDegree number
+---@field currentYawOffsetDegree number
+---@field posDist number
+---@field currentPosDist number
+---@field lookDist number
+---@field maxZoom number
+---@field zoomMult number
+---@field isSprintFOVEnabled boolean
+---@field sprintFOVOffset number
+---@field baseFOV number
+---@field currentFOV number
+---@field zoomInterpolationSpeed number
+---@field sprintFOVInterpolationSpeed number
+---@field shoulderSwapInterpolationSpeed number
+---@field isBobbingEnabled boolean
+---@field isBobbingFreqSyncEnabled boolean
+---@field bobbingAmountHorizontal number
+---@field bobbingAmountVertical number
+---@field bobbingFreqHorizontal number
+---@field bobbingFreqVertical number
+---@field new fun(options: SimpleCustomThirdPerson_options): SimpleCustomThirdPerson
+---@field IsEnabled fun(self: SimpleCustomThirdPerson): boolean
+---@field SetEnabled fun(self: SimpleCustomThirdPerson, enable: boolean): nil
+---@field GetSensitivity fun(self: SimpleCustomThirdPerson): number
+---@field SetSensitivity fun(self: SimpleCustomThirdPerson, sensitivity: number): nil
+---@field GetYaw fun(self: SimpleCustomThirdPerson): number
+---@field GetPitch fun(self: SimpleCustomThirdPerson): number
+---@field GetShoulderSide fun(self: SimpleCustomThirdPerson): SimpleCustomThirdPerson_ShoulderSideWithCenter
+---@field SetShoulderSide fun(self: SimpleCustomThirdPerson, side: SimpleCustomThirdPerson_ShoulderSide): nil
+---@field ToggleShoulderSide fun(self: SimpleCustomThirdPerson): nil
+---@field CalculateAll fun(self: SimpleCustomThirdPerson): nil
+---@field ApplyCameraTransform fun(self: SimpleCustomThirdPerson): nil
+
+SIMPLE_CUSTOM_THIRD_PERSON = {}
+
+---@return SimpleCustomThirdPerson
+function SIMPLE_CUSTOM_THIRD_PERSON.GetSingleton() end
