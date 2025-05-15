@@ -52,6 +52,19 @@ function main()
 				if SimpleFP:IsEnabled() then
 					SimpleFP:CalculateAll()
 					SimpleFP:ApplyCameraTransform()
+
+					-- Fix: camera facing the wrong direction after entering building
+					local prevArea = AreaGetVisible()
+					if AreaIsLoading() then
+						while AreaIsLoading() do
+							Wait(0)
+							SimpleFP:CalculateAll()
+							SimpleFP:ApplyCameraTransform()
+						end
+						if AreaGetVisible() ~= prevArea then
+							SimpleFP.yaw = PedGetHeading(gPlayer) + math.rad(90)
+						end
+					end
 				end
 			end
 		end
