@@ -24,6 +24,7 @@ local privateFields = {
 				bEnabled = false,
 				bEnableFirstPerson = false,
 
+				sToggleHeadKey = "H",
 				sKeycode = "F",
 				sModifierKey = "LSHIFT",
 				fLookSensitivity = 1.5,
@@ -177,7 +178,7 @@ privateFields.__index = privateFields
 
 ---@class SIMPLE_FIRST_PERSON
 _G.SIMPLE_FIRST_PERSON = setmetatable({
-	VERSION = "1.0.0",
+	VERSION = "1.1.0",
 
 	DATA = {
 		-- The core mod state. If `false`, you cannot switch to first person POV.
