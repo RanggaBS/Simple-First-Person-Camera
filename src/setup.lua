@@ -33,6 +33,8 @@ local privateFields = {
 				fFOV = 90,
 				fSprintFOVOffset = 20,
 				fSprintFOVInterpolationSpeed = 0.1,
+				bVehicleRelativeCamera = true,
+				fMaxYawDeviation = 85,
 			},
 		},
 
@@ -204,10 +206,18 @@ function SIMPLE_FIRST_PERSON.GetSingleton()
 			{
 				enableSprintFOV = conf:GetSettingValue("bEnableSprintFOV") --[[@as boolean]],
 				sprintFOVOffset = conf:GetSettingValue("fSprintFOVOffset") --[[@as number]],
+
 				sprintFOVInterpolationSpeed = conf:GetSettingValue(
 					"fSprintFOVInterpolationSpeed"
 				) --[[@as number]],
+
 				baseFOV = conf:GetSettingValue("fFOV") --[[@as number]],
+
+				isVehicleRelativeCameraEnabled = conf:GetSettingValue(
+					"bVehicleRelativeCamera"
+				) --[[@as boolean]],
+
+				maxYawDeviation = conf:GetSettingValue("fMaxYawDeviation") --[[@as number]],
 			}
 		)
 

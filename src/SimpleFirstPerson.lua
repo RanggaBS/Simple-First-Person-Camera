@@ -2,7 +2,7 @@ LoadScript("src/utils.lua")
 
 -- ---------------------------------- Types --------------------------------- --
 
----@alias SimpleFirstPerson_Options { enableSprintFOV: boolean, baseFOV: number, sprintFOVOffset: number, sprintFOVInterpolationSpeed: number }
+---@alias SimpleFirstPerson_Options { enableSprintFOV: boolean, baseFOV: number, sprintFOVOffset: number, sprintFOVInterpolationSpeed: number, isVehicleRelativeCameraEnabled: boolean, maxYawDeviation: number }
 
 -- -------------------------------------------------------------------------- --
 --                            Attributes & Methods                            --
@@ -13,8 +13,10 @@ LoadScript("src/utils.lua")
 ---@field new fun(sensitivity: number, options: SimpleFirstPerson_Options): SimpleFirstPerson
 ---@field private _isSimpleCustomThirdPersonInstalled boolean
 ---@field private _isCameraFOVInstalled boolean
+---@field private _maxYawDeviation number -- Batas deviasi yaw relatif dari arah hadap pemain/kendaraan
 ---@field private _maxYaw number
 ---@field private _maxPitch number
+---@field private _wasInVehicleLastFrame boolean -- Baru: untuk deteksi transisi keluar kendaraan
 ---@field private _CheckSimpleCustomThirdPersonInstalled fun(): boolean
 ---@field private _CheckCameraFOVInstalled fun(): boolean
 ---@field private _HandleSprintFOV fun(self: SimpleFirstPerson): nil
@@ -27,6 +29,7 @@ LoadScript("src/utils.lua")
 ---@field yaw number
 -- ---@field unclampedYaw number
 ---@field pitch number
+---@field mouseDrivenYawOffset number -- Offset yaw yang disebabkan oleh input mouse, relatif terhadap heading pemain/kendaraan
 ---@field offset2d ArrayOfNumbers2D
 ---@field pos ArrayOfNumbers3D
 ---@field look ArrayOfNumbers3D
@@ -36,6 +39,7 @@ LoadScript("src/utils.lua")
 ---@field sprintFOVInterpolationSpeed number
 ---@field baseFOV number
 ---@field currentFOV number
+---@field isVehicleRelativeCameraEnabled boolean -- Baru: menyimpan status opsi INI
 ---@field IsEnabled fun(self: SimpleFirstPerson): boolean
 ---@field SetEnabled fun(self: SimpleFirstPerson, enable: boolean): nil
 ---@field GetSensitivity fun(self: SimpleFirstPerson): number
@@ -83,6 +87,10 @@ function SimpleFirstPerson.new(sensitivity, options)
 		end
 	end)
 
+	instance._maxYawDeviation = math.rad(options.maxYawDeviation)
+	instance.mouseDrivenYawOffset = 0
+	instance._wasInVehicleLastFrame = false
+
 	instance._maxYaw = math.rad(180)
 	instance._maxPitch = math.rad(75)
 
@@ -105,6 +113,9 @@ function SimpleFirstPerson.new(sensitivity, options)
 	instance.currentFOV = instance.baseFOV
 
 	instance.sprintFOVInterpolationSpeed = options.sprintFOVInterpolationSpeed
+
+	instance.isVehicleRelativeCameraEnabled =
+		options.isVehicleRelativeCameraEnabled
 
 	return instance
 end
@@ -290,8 +301,48 @@ function SimpleFirstPerson:_CalculateOrientation()
 
 	frameTime = GetFrameTime()
 
-	self.yaw = self.yaw + ctrlRotX * self.sensitivity * frameTime
 	self.pitch = self.pitch + ctrlRotY * self.sensitivity * frameTime
+	self.pitch = UTIL.Clamp(self.pitch, -self._maxPitch, self._maxPitch)
+
+	local isInVehicleThisFrame = PlayerIsInAnyVehicle()
+
+	if
+		self._wasInVehicleLastFrame
+		and not isInVehicleThisFrame
+		and self.isVehicleRelativeCameraEnabled
+	then
+		self.mouseDrivenYawOffset = 0
+		self.yaw = UTIL.FixRadians(PedGetHeading(gPlayer) + math.rad(90))
+	end
+
+	if self.isVehicleRelativeCameraEnabled and isInVehicleThisFrame then
+		self.mouseDrivenYawOffset = self.mouseDrivenYawOffset
+			+ ctrlRotX * self.sensitivity * frameTime
+
+		self.mouseDrivenYawOffset = UTIL.Clamp(
+			self.mouseDrivenYawOffset,
+			-self._maxYawDeviation,
+			self._maxYawDeviation
+		)
+
+		local baseHeading = UTIL.FixRadians(PedGetHeading(gPlayer) + math.rad(90))
+		self.yaw = UTIL.FixRadians(baseHeading + self.mouseDrivenYawOffset)
+	else
+		self.yaw =
+			UTIL.FixRadians(self.yaw + ctrlRotX * self.sensitivity * frameTime)
+	end
+
+	self._wasInVehicleLastFrame = isInVehicleThisFrame
+
+	-- local newMsOff = self.mouseDrivenYawOffset
+	-- newMsOff = newMsOff + ctrlRotX * self.sensitivity * frameTime
+	-- newMsOff = UTIL.Clamp(newMsOff, -self._maxYawDeviation, self._maxYawDeviation)
+	-- self.mouseDrivenYawOffset = newMsOff
+
+	-- local baseHeading = UTIL.FixRadians(PedGetHeading(gPlayer) + math.rad(90))
+	-- self.yaw = UTIL.FixRadians(baseHeading + self.mouseDrivenYawOffset)
+
+	-- self.yaw = self.yaw + ctrlRotX * self.sensitivity * frameTime
 
 	-- self.unclampedYaw = self.unclampedYaw
 	-- 	+ -mouseX * MOUSE_SPEED_MULTIPLIER * self.sensitivity
@@ -305,8 +356,7 @@ function SimpleFirstPerson:_CalculateOrientation()
 		self._maxYaw,
 		-self._maxYaw
 	) ]]
-	self.yaw = UTIL.FixRadians(self.yaw)
-	self.pitch = UTIL.Clamp(self.pitch, -self._maxPitch, self._maxPitch)
+	-- self.yaw = UTIL.FixRadians(self.yaw)
 
 	--[[ local heading = PedGetHeading(gPlayer)
 	local relativeYaw = modulo(math.deg(self.yaw) - math.deg(heading), 360)
@@ -365,6 +415,9 @@ function SimpleFirstPerson:_CalculateInVehicleOffset()
 
 		vehId = VehicleGetModelId(VehicleFromDriver(gPlayer))
 		vehTbl = VEH_OFFSET_MULT_MAP[vehId]
+		if not vehTbl then
+			vehTbl = { maxSpeed = 20, offset = 1.5 }
+		end
 
 		offsetVehMult = UTIL.Clamp(
 			UTIL.LerpOptimized(1, vehTbl.offset, speed / vehTbl.maxSpeed),
@@ -478,6 +531,12 @@ function SimpleFirstPerson:SetEnabled(enable)
 		-- if self._isCameraFOVInstalled then
 		-- 	_G.CAMERA_FOV_MOD.GetSingleton():SetEnabled(false)
 		-- end
+
+		self._wasInVehicleLastFrame = PlayerIsInAnyVehicle()
+
+		-- Reset
+		self.mouseDrivenYawOffset = 0
+		self.pitch = 0
 
 		self.yaw = UTIL.FixRadians(PedGetHeading(gPlayer) + math.rad(90))
 	else
