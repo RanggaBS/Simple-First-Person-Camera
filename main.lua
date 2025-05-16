@@ -37,7 +37,7 @@ function main()
 
 	local BODYPART_HEAD = 0
 
-	local prevHat = UTIL.GetCurrentHeadClothingName() --[[@as string]]
+	local prevHat = UTIL.GetCurrentHeadClothingName()
 
 	while true do
 		Wait(0)
