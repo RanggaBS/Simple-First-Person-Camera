@@ -42,70 +42,72 @@ function main()
 	while true do
 		Wait(0)
 
-		if MOD.IsEnabled() then
-			if GetCutsceneRunning() == 0 then
-				if modifierKey ~= "none" then
-					if IsKeyPressed(modifierKey) and IsKeyBeingPressed(activationKey) then
-						SimpleFP:SetEnabled(not SimpleFP:IsEnabled())
+		if MOD.IsEnabled() and GetCutsceneRunning() == 0 then
+			-- Activation
+			if modifierKey ~= "none" then
+				if IsKeyPressed(modifierKey) and IsKeyBeingPressed(activationKey) then
+					SimpleFP:SetEnabled(not SimpleFP:IsEnabled())
 
-						-- Restore head back
-						if not SimpleFP:IsEnabled() then
-							ClothingSetPlayer(BODYPART_HEAD, prevHat or "HAIR")
-							ClothingBuildPlayer()
-						end
+					-- Restore head back
+					if not SimpleFP:IsEnabled() then
+						ClothingSetPlayer(BODYPART_HEAD, prevHat or "HAIR")
+						ClothingBuildPlayer()
 					end
-				else
-					if IsKeyBeingPressed(activationKey) then
-						SimpleFP:SetEnabled(not SimpleFP:IsEnabled())
+				end
+			else
+				if IsKeyBeingPressed(activationKey) then
+					SimpleFP:SetEnabled(not SimpleFP:IsEnabled())
 
-						-- Restore head back
-						if not SimpleFP:IsEnabled() then
-							ClothingSetPlayer(BODYPART_HEAD, prevHat or "HAIR")
-							ClothingBuildPlayer()
-						end
+					-- Restore head back
+					if not SimpleFP:IsEnabled() then
+						ClothingSetPlayer(BODYPART_HEAD, prevHat or "HAIR")
+						ClothingBuildPlayer()
+					end
+				end
+			end
+
+			if SimpleFP:IsEnabled() then
+				SimpleFP:CalculateAll()
+				SimpleFP:ApplyCameraTransform()
+
+				-- Fix: camera facing the wrong direction after entering building
+				if AreaIsLoading() then
+					local prevArea = AreaGetVisible()
+					while AreaIsLoading() do
+						Wait(0)
+						SimpleFP:CalculateAll()
+						SimpleFP:ApplyCameraTransform()
+					end
+					if AreaGetVisible() ~= prevArea then
+						-- Reset camera facing direction
+						SimpleFP.yaw = PedGetHeading(gPlayer) + math.rad(90)
 					end
 				end
 
-				if SimpleFP:IsEnabled() then
-					SimpleFP:CalculateAll()
-					SimpleFP:ApplyCameraTransform()
+				-- Toggle head - Not allowed while in a vehicle
+				if not PlayerIsInAnyVehicle() and IsKeyBeingPressed(toggleHeadKey) then
+					local clthHash, clthId = ClothingGetPlayer(BODYPART_HEAD)
+					local isInvalid = tostring(clthHash) == "userdata: 00000000"
 
-					-- Fix: camera facing the wrong direction after entering building
-					if AreaIsLoading() then
-						local prevArea = AreaGetVisible()
-						while AreaIsLoading() do
-							Wait(0)
-							SimpleFP:CalculateAll()
-							SimpleFP:ApplyCameraTransform()
+					-- If head invisible
+					if isInvalid then
+						ClothingSetPlayer(BODYPART_HEAD, prevHat or "HAIR") -- Must be all uppercase! "HAIR"
+						ClothingBuildPlayer()
+
+					-- If head visible
+					else
+						-- Backup hat
+						prevHat = "HAIR"
+						if UTIL.IsWearingHat() then
+							prevHat = UTIL.GetCurrentHeadClothingName()
 						end
-						if AreaGetVisible() ~= prevArea then
-							SimpleFP.yaw = PedGetHeading(gPlayer) + math.rad(90)
-						end
-					end
 
-					-- Toggle head
-					if IsKeyBeingPressed(toggleHeadKey) then
-						local clthHash, clthId = ClothingGetPlayer(BODYPART_HEAD)
-						local isInvalid = tostring(clthHash) == "userdata: 00000000"
-
-						-- If head invisible
-						if isInvalid then
-							ClothingSetPlayer(BODYPART_HEAD, prevHat or "HAIR") -- Must be all uppercase! "HAIR"
-							ClothingBuildPlayer()
-
-						-- If head visible
-						else
-							-- Backup hat
-							prevHat = "HAIR"
-							if UTIL.IsWearingHat() then
-								prevHat = UTIL.GetCurrentHeadClothingName()
-							end
-
-							ClothingSetPlayer(BODYPART_HEAD, "") -- Empty string, invalid clothing - makes Jimmy headless
-							ClothingBuildPlayer()
-						end
+						ClothingSetPlayer(BODYPART_HEAD, "") -- Empty string, invalid clothing - makes Jimmy headless
+						ClothingBuildPlayer()
 					end
 				end
+
+				SimpleFP:_HandleAimingCameraActivation()
 			end
 		end
 	end

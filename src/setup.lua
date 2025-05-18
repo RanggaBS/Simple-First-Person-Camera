@@ -35,6 +35,8 @@ local privateFields = {
 				fSprintFOVInterpolationSpeed = 0.1,
 				bVehicleRelativeCamera = true,
 				fMaxYawDeviation = 85,
+				bOnFootAutoRotateWithPlayer = false,
+				fCameraRotationSmoothFactor = 0.1,
 			},
 		},
 
@@ -218,6 +220,14 @@ function SIMPLE_FIRST_PERSON.GetSingleton()
 				) --[[@as boolean]],
 
 				maxYawDeviation = conf:GetSettingValue("fMaxYawDeviation") --[[@as number]],
+
+				onFootAutoRotateWithPlayer = conf:GetSettingValue(
+					"bOnFootAutoRotateWithPlayer"
+				) --[[@as boolean]],
+
+				cameraRotationSmoothFactor = conf:GetSettingValue(
+					"fCameraRotationSmoothFactor"
+				) --[[@as number]],
 			}
 		)
 

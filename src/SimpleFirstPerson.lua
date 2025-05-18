@@ -1,9 +1,5 @@
 LoadScript("src/utils.lua")
 
--- ---------------------------------- Types --------------------------------- --
-
----@alias SimpleFirstPerson_Options { enableSprintFOV: boolean, baseFOV: number, sprintFOVOffset: number, sprintFOVInterpolationSpeed: number, isVehicleRelativeCameraEnabled: boolean, maxYawDeviation: number }
-
 -- -------------------------------------------------------------------------- --
 --                            Attributes & Methods                            --
 -- -------------------------------------------------------------------------- --
@@ -17,6 +13,7 @@ LoadScript("src/utils.lua")
 ---@field private _maxYaw number
 ---@field private _maxPitch number
 ---@field private _wasInVehicleLastFrame boolean -- Baru: untuk deteksi transisi keluar kendaraan
+---@field private _wasInRelativeModeLastFrame boolean -- For smooth camera mode transitions
 ---@field private _CheckSimpleCustomThirdPersonInstalled fun(): boolean
 ---@field private _CheckCameraFOVInstalled fun(): boolean
 ---@field private _HandleSprintFOV fun(self: SimpleFirstPerson): nil
@@ -27,8 +24,11 @@ LoadScript("src/utils.lua")
 ---@field private _CalculateCamPosAndLook fun(self: SimpleFirstPerson): nil
 ---@field isEnabled boolean
 ---@field yaw number
+---@field targetYaw number
 -- ---@field unclampedYaw number
 ---@field pitch number
+---@field targetPitch number
+---@field cameraRotationSmoothFactor number -- New: camera rotation smoothing factor
 ---@field mouseDrivenYawOffset number -- Offset yaw yang disebabkan oleh input mouse, relatif terhadap heading pemain/kendaraan
 ---@field offset2d ArrayOfNumbers2D
 ---@field pos ArrayOfNumbers3D
@@ -40,6 +40,8 @@ LoadScript("src/utils.lua")
 ---@field baseFOV number
 ---@field currentFOV number
 ---@field isVehicleRelativeCameraEnabled boolean -- Baru: menyimpan status opsi INI
+---@field onFootAutoRotateWithPlayer boolean -- New: For controller on-foot auto rotation
+---@field isAimingCamActive boolean
 ---@field IsEnabled fun(self: SimpleFirstPerson): boolean
 ---@field SetEnabled fun(self: SimpleFirstPerson, enable: boolean): nil
 ---@field GetSensitivity fun(self: SimpleFirstPerson): number
@@ -90,6 +92,8 @@ function SimpleFirstPerson.new(sensitivity, options)
 	instance._maxYawDeviation = math.rad(options.maxYawDeviation)
 	instance.mouseDrivenYawOffset = 0
 	instance._wasInVehicleLastFrame = false
+	instance._wasInRelativeModeLastFrame = false
+	instance.cameraRotationSmoothFactor = options.cameraRotationSmoothFactor
 
 	instance._maxYaw = math.rad(180)
 	instance._maxPitch = math.rad(75)
@@ -97,8 +101,10 @@ function SimpleFirstPerson.new(sensitivity, options)
 	instance.isEnabled = false
 
 	instance.yaw = 0
+	instance.targetYaw = 0
 	-- instance.unclampedYaw = 0
 	instance.pitch = 0
+	instance.targetPitch = 0
 
 	instance.offset2d = { 0, 0 }
 
@@ -116,6 +122,10 @@ function SimpleFirstPerson.new(sensitivity, options)
 
 	instance.isVehicleRelativeCameraEnabled =
 		options.isVehicleRelativeCameraEnabled
+
+	instance.onFootAutoRotateWithPlayer = options.onFootAutoRotateWithPlayer
+
+	instance.isAimingCamActive = false
 
 	return instance
 end
@@ -182,6 +192,9 @@ local VEH_OFFSET_MULT_MAP = {
 	[298] = { maxSpeed = 50, offset = 3 }, -- Spaceship 1
 	[287] = { maxSpeed = 50, offset = 3 }, -- Spaceship 2
 	[285] = { maxSpeed = 50, offset = 3 }, -- Spaceship 3
+
+	-- average max speed: 23.092592592593
+	-- average offset = 2.2803703703704
 }
 local velocity3d = { 0, 0, 0 }
 local offsetVehMult = 1
@@ -266,7 +279,7 @@ function SimpleFirstPerson:_HandleSprintFOV()
 			-- isTransitioning = true
 
 			if CameraGetFOV() ~= self.baseFOV + self.sprintFOVOffset then
-				self.currentFOV = UTIL.LerpOptimized(
+				self.currentFOV = UTIL.Lerp(
 					self.currentFOV,
 					self.baseFOV + self.sprintFOVOffset,
 					self.sprintFOVInterpolationSpeed
@@ -278,7 +291,7 @@ function SimpleFirstPerson:_HandleSprintFOV()
 			if CameraGetFOV() ~= self.baseFOV then
 				-- isTransitioning = false
 
-				self.currentFOV = UTIL.LerpOptimized(
+				self.currentFOV = UTIL.Lerp(
 					self.currentFOV,
 					self.baseFOV,
 					self.sprintFOVInterpolationSpeed
@@ -288,6 +301,8 @@ function SimpleFirstPerson:_HandleSprintFOV()
 		end
 	end
 end
+
+local lastRotate = GetTimer()
 
 function SimpleFirstPerson:_CalculateOrientation()
 	-- Controller handler
@@ -301,11 +316,17 @@ function SimpleFirstPerson:_CalculateOrientation()
 
 	frameTime = GetFrameTime()
 
-	self.pitch = self.pitch + ctrlRotY * self.sensitivity * frameTime
-	self.pitch = UTIL.Clamp(self.pitch, -self._maxPitch, self._maxPitch)
+	local smoothingFactor = self.cameraRotationSmoothFactor
+
+	self.targetPitch = self.targetPitch + ctrlRotY * self.sensitivity * frameTime
+	self.targetPitch =
+		UTIL.Clamp(self.targetPitch, -self._maxPitch, self._maxPitch)
+	self.pitch = UTIL.Lerp(self.pitch, self.targetPitch, smoothingFactor)
 
 	local isInVehicleThisFrame = PlayerIsInAnyVehicle()
+	local isController = IsUsingJoystick(0)
 
+	-- On exit vehicle
 	if
 		self._wasInVehicleLastFrame
 		and not isInVehicleThisFrame
@@ -315,6 +336,7 @@ function SimpleFirstPerson:_CalculateOrientation()
 		self.yaw = UTIL.FixRadians(PedGetHeading(gPlayer) + math.rad(90))
 	end
 
+	-- On bicycling or driving car
 	if self.isVehicleRelativeCameraEnabled and isInVehicleThisFrame then
 		self.mouseDrivenYawOffset = self.mouseDrivenYawOffset
 			+ ctrlRotX * self.sensitivity * frameTime
@@ -326,56 +348,196 @@ function SimpleFirstPerson:_CalculateOrientation()
 		)
 
 		local baseHeading = UTIL.FixRadians(PedGetHeading(gPlayer) + math.rad(90))
-		self.yaw = UTIL.FixRadians(baseHeading + self.mouseDrivenYawOffset)
-	else
-		self.yaw =
-			UTIL.FixRadians(self.yaw + ctrlRotX * self.sensitivity * frameTime)
+		self.targetYaw = baseHeading + self.mouseDrivenYawOffset
+
+		local diff = UTIL.FixRadians(self.targetYaw - self.yaw)
+		self.yaw = UTIL.Lerp(self.yaw, self.yaw + diff, smoothingFactor)
 	end
 
-	self._wasInVehicleLastFrame = isInVehicleThisFrame
+	local activateOnFootAutoRotate = self.onFootAutoRotateWithPlayer
+		and not isInVehicleThisFrame
+		and isController
 
-	-- local newMsOff = self.mouseDrivenYawOffset
-	-- newMsOff = newMsOff + ctrlRotX * self.sensitivity * frameTime
-	-- newMsOff = UTIL.Clamp(newMsOff, -self._maxYawDeviation, self._maxYawDeviation)
-	-- self.mouseDrivenYawOffset = newMsOff
+	local isRelativeModeThisFrame = (
+		self.isVehicleRelativeCameraEnabled and isInVehicleThisFrame
+	) or activateOnFootAutoRotate
 
-	-- local baseHeading = UTIL.FixRadians(PedGetHeading(gPlayer) + math.rad(90))
-	-- self.yaw = UTIL.FixRadians(baseHeading + self.mouseDrivenYawOffset)
+	if isRelativeModeThisFrame and not self._wasInRelativeModeLastFrame then
+		self.mouseDrivenYawOffset = 0
+		self.yaw = UTIL.FixRadians(PedGetHeading(gPlayer) + math.rad(90))
+	elseif not isRelativeModeThisFrame and self._wasInRelativeModeLastFrame then
+		-- Transitioning FROM relative mode
+		-- self.yaw is already absolute (world-relative) due to previous calculation,
+		-- so it's a good starting point for absolute mode.
+		-- mouseDrivenYawOffset will be set to 0 if not in relative mode.
+	end
 
-	-- self.yaw = self.yaw + ctrlRotX * self.sensitivity * frameTime
+	-- On foot
+	if not isInVehicleThisFrame then
+		if isRelativeModeThisFrame then
+			self.mouseDrivenYawOffset = self.mouseDrivenYawOffset
+				+ ctrlRotX * self.sensitivity * frameTime
 
-	-- self.unclampedYaw = self.unclampedYaw
-	-- 	+ -mouseX * MOUSE_SPEED_MULTIPLIER * self.sensitivity
+			self.mouseDrivenYawOffset = UTIL.Clamp(
+				self.mouseDrivenYawOffset,
+				-self._maxYawDeviation,
+				self._maxYawDeviation
+			)
 
-	-- self.unclampedYaw = Clamp2(self.unclampedYaw, -90, 270, 270, -90)
+			-- If analog moving
+			if math.abs(GetStickValue(18, 0)) > 0 then
+				lastRotate = GetTimer()
+			end
 
-	--[[ self.yaw = UTIL.Clamp2(
-		self.yaw,
-		-self._maxYaw,
-		self._maxYaw,
-		self._maxYaw,
-		-self._maxYaw
-	) ]]
-	-- self.yaw = UTIL.FixRadians(self.yaw)
+			-- The delay before the camera direction follows the player facing direction
+			local DELAY = math.random(750, 1000)
 
-	--[[ local heading = PedGetHeading(gPlayer)
-	local relativeYaw = modulo(math.deg(self.yaw) - math.deg(heading), 360)
-	local clampedRelativeYaw = math.max(math.min(relativeYaw, 90), -90)
-	local newYaw = modulo(math.deg(heading) - clampedRelativeYaw, 360)
+			-- If standing still, no moving
+			-- Prevent player looking 360°
+			if UTIL.GetWholeStickValue() <= 0 then
+				self.mouseDrivenYawOffset = self.mouseDrivenYawOffset
+					+ ctrlRotX * self.sensitivity * frameTime
 
-	local yawDiff = self:GetYawSameAsHeading() - heading ]]
+				self.mouseDrivenYawOffset = UTIL.Clamp(
+					self.mouseDrivenYawOffset,
+					-self._maxYawDeviation,
+					self._maxYawDeviation
+				)
+
+				local baseHeading =
+					UTIL.FixRadians(PedGetHeading(gPlayer) + math.rad(90))
+				self.targetYaw = baseHeading + self.mouseDrivenYawOffset
+
+				local diff = UTIL.FixRadians(self.targetYaw - self.yaw)
+				self.yaw = UTIL.Lerp(self.yaw, self.yaw + diff, smoothingFactor)
+
+			--[[ -- Freely rotate the camera
+			elseif GetTimer() < lastRotate + DELAY then
+				self.targetYaw = self.targetYaw
+					+ ctrlRotX * self.sensitivity * frameTime
+				self.yaw = UTIL.Lerp(self.yaw, self.targetYaw, smoothingFactor)
+				self.mouseDrivenYawOffset = 0 ]]
+
+			--[[ -- If right analog not moving, not rotating the camera
+			--   Camera direction follows the player facing direction
+			elseif math.abs(GetStickValue(18, 0)) <= 0 then
+				local baseHeading =
+					UTIL.FixRadians(PedGetHeading(gPlayer) + math.rad(90))
+
+				self.targetYaw = baseHeading + self.mouseDrivenYawOffset -- Ini adalah 'tujuan' yaw, bisa di luar (-PI, PI]
+
+				-- `currentActualYaw` adalah orientasi kamera dari frame sebelumnya.
+				-- Sebaiknya dijaga dalam rentang kanonis, misal dengan UTIL.FixRadians di akhir update frame lalu.
+				local currentActualYaw = self.yaw
+
+				-- Hitung perbedaan sudut antara target dan yaw saat ini
+				local diff = self.targetYaw - currentActualYaw
+
+				-- Normalisasi perbedaan sudut agar selalu mengambil jalur terpendek (-PI sampai PI)
+				diff = UTIL.FixRadians(diff)
+
+				-- Target untuk interpolasi adalah yaw saat ini ditambah dengan perbedaan terpendek
+				local adjustedTargetForLerp = currentActualYaw + diff
+
+				self.yaw =
+					UTIL.Lerp(currentActualYaw, adjustedTargetForLerp, smoothingFactor) -- Interpolasi sepanjang jalur terpendek
+
+				-- Opsional tapi direkomendasikan: Jaga self.yaw dalam rentang standar (-PI, PI].
+				-- Ini tidak berdampak negatif pada kalkulasi cos/sin frame ini,
+				-- dan memastikan self.yaw untuk frame berikutnya dimulai dari representasi kanonis.
+				-- Juga berguna untuk debugging jika Anda mencetak nilai self.yaw.
+				self.yaw = UTIL.FixRadians(self.yaw) ]]
+
+			-- If player moving around
+			else
+				if GetTimer() < lastRotate + DELAY then
+					local yaw = self.targetYaw + ctrlRotX * self.sensitivity * frameTime
+					self.targetYaw = UTIL.FixRadians(yaw)
+				--
+				else
+					self.mouseDrivenYawOffset = 0
+
+					local baseHeading =
+						UTIL.FixRadians(PedGetHeading(gPlayer) + math.rad(90))
+					self.targetYaw = baseHeading + self.mouseDrivenYawOffset
+				end
+
+				local diff = UTIL.FixRadians(self.targetYaw - self.yaw)
+				self.yaw = UTIL.Lerp(self.yaw, self.yaw + diff, smoothingFactor)
+			end
+
+		-- Keyboard & mouse
+		else
+			-- If mouse moving horizontally
+			local mouseX, mouseY = GetMouseInput()
+			if mouseX ~= 0 then
+				lastRotate = GetTimer()
+			end
+
+			local DELAY = math.random(750, 1000)
+
+			-- If not moving, standing still
+			if UTIL.GetWholeStickValue() <= 0 then
+				self.mouseDrivenYawOffset = self.mouseDrivenYawOffset
+					+ ctrlRotX * self.sensitivity * frameTime
+
+				self.mouseDrivenYawOffset = UTIL.Clamp(
+					self.mouseDrivenYawOffset,
+					-self._maxYawDeviation,
+					self._maxYawDeviation
+				)
+
+				local baseHeading =
+					UTIL.FixRadians(PedGetHeading(gPlayer) + math.rad(90))
+				self.targetYaw = baseHeading + self.mouseDrivenYawOffset
+
+				local diff = UTIL.FixRadians(self.targetYaw - self.yaw)
+				self.yaw = UTIL.Lerp(self.yaw, self.yaw + diff, smoothingFactor)
+			-- elseif GetTimer() < lastRotate + DELAY and UTIL.GetWholeStickValue() <= 0 then
+			-- 	local newYaw = self.targetYaw + ctrlRotX * self.sensitivity * frameTime
+			-- 	self.targetYaw = newYaw
+			-- 	self.yaw = UTIL.Lerp(self.yaw, newYaw, smoothingFactor)
+			-- 	self.mouseDrivenYawOffset = 0
+
+			-- If moving
+			else
+				-- Freely move rotate the camera around with mouse
+				if GetTimer() < lastRotate + DELAY then
+					self.targetYaw = UTIL.FixRadians(
+						self.targetYaw + ctrlRotX * self.sensitivity * frameTime
+					)
+
+					local diff = UTIL.FixRadians(self.targetYaw - self.yaw)
+					self.yaw = UTIL.Lerp(self.yaw, self.yaw + diff, smoothingFactor)
+
+				-- If past than the timer...
+				--   The camera rotation now relative to the player heading
+				else
+					self.mouseDrivenYawOffset = 0
+
+					local baseHeading =
+						UTIL.FixRadians(PedGetHeading(gPlayer) + math.rad(90))
+					self.targetYaw = baseHeading + self.mouseDrivenYawOffset
+
+					local diff = UTIL.FixRadians(self.targetYaw - self.yaw)
+					self.yaw = UTIL.Lerp(self.yaw, self.yaw + diff, smoothingFactor)
+				end
+			end
+		end
+	end
+
+	self._wasInVehicleLastFrame = isInVehicleThisFrame -- Keep for other logic if needed
+	self._wasInRelativeModeLastFrame = isRelativeModeThisFrame -- Update state for next frame
 end
 
 function SimpleFirstPerson:_CalculateOnFootOffset()
 	if not PlayerIsInAnyVehicle() then
-		if
-			UTIL.PlayerIsSprinting() --[[ or PedMePlaying(gPlayer, "Jump") ]]
-		then
+		if UTIL.PlayerIsSprinting() then
 			self.offset2d[1] = forwardDir2d[1] * EYES_OFFSET * SPRINT_OFFSET
 			self.offset2d[2] = forwardDir2d[2] * EYES_OFFSET * SPRINT_OFFSET
 		else
 			currentRunningOffset = UTIL.Clamp(
-				UTIL.LerpOptimized(0, RUNNING_OFFSET, dirMoveMagnitude),
+				UTIL.Lerp(0, RUNNING_OFFSET, dirMoveMagnitude),
 				0,
 				RUNNING_OFFSET
 			)
@@ -413,34 +575,33 @@ function SimpleFirstPerson:_CalculateInVehicleOffset()
 			maxVel = 0
 		end ]]
 
-		vehId = VehicleGetModelId(VehicleFromDriver(gPlayer))
+		vehId = VehicleGetModelId(VehicleFromDriver(gPlayer) --[[@as integer]])
 		vehTbl = VEH_OFFSET_MULT_MAP[vehId]
 		if not vehTbl then
-			vehTbl = { maxSpeed = 20, offset = 1.5 }
+			vehTbl = { maxSpeed = 23.092592592593, offset = 2.2803703703704 } -- avg speed & offset
 		end
 
 		offsetVehMult = UTIL.Clamp(
-			UTIL.LerpOptimized(1, vehTbl.offset, speed / vehTbl.maxSpeed),
+			UTIL.Lerp(1, vehTbl.offset, speed / vehTbl.maxSpeed),
 			1,
 			vehTbl.maxSpeed
 		)
 
-		speedingOffset = UTIL.Clamp(
-			UTIL.LerpOptimized(0, 1, (speed / vehTbl.maxSpeed) * 1.5),
-			0,
-			1
-		)
+		speedingOffset =
+			UTIL.Clamp(UTIL.Lerp(0, 1, (speed / vehTbl.maxSpeed) * 1.5), 0, 1)
 
-		-- If moving
-		if speed > 0.2 then
+		local minSpeedingFactor = 0.7
+		local actualSpeedingOffset = UTIL.Lerp(minSpeedingFactor, 1, speedingOffset)
+
+		if speed > 0.2 then -- If moving
 			-- If pressing move forward button
 			self.offset2d[1] = forwardDir2d[1]
 				* EYES_OFFSET
-				* speedingOffset
+				* actualSpeedingOffset
 				* offsetVehMult
 			self.offset2d[2] = forwardDir2d[2]
 				* EYES_OFFSET
-				* speedingOffset
+				* actualSpeedingOffset
 				* offsetVehMult
 
 			-- If pressing move back button, slightly move the camera to the back
@@ -456,9 +617,7 @@ function SimpleFirstPerson:_CalculateInVehicleOffset()
 					self.offset2d[2] = -forwardDir2d[2] * EYES_OFFSET * 0.8
 				end
 			end
-
-		-- If not moving
-		else
+		else -- If not moving (or very slow)
 			self.offset2d[1] = forwardDir2d[1] * EYES_OFFSET * facingUpDownOffset
 			self.offset2d[2] = forwardDir2d[2] * EYES_OFFSET * facingUpDownOffset
 		end
@@ -510,6 +669,56 @@ function SimpleFirstPerson:_CalculateCamPosAndLook()
 	self.look[3] = headZ + rot[3]
 end
 
+local lastAimBtnPressed = GetTimer()
+
+function SimpleFirstPerson:_HandleAimingCameraActivation()
+	if GetTimer() < lastAimBtnPressed + 300 and IsButtonBeingPressed(10, 0) then
+		self.isAimingCamActive = true
+		local sfp = self
+
+		CreateThread(function()
+			PlayerStopAllActionControllers()
+			Wait(0)
+			PlayerStopAllActionControllers()
+
+			local startAiming = GetTimer()
+			local holding = false
+
+			while
+				not IsButtonBeingPressed(10, 0) or (holding and IsButtonPressed(10, 0))
+			do
+				Wait(0)
+
+				local isInTreshold = GetTimer() < startAiming + 150
+				if isInTreshold and IsButtonBeingPressed(10, 0) then
+					holding = true
+				elseif not isInTreshold and IsButtonBeingReleased(10, 0) then
+					break
+				end
+
+				sfp.isEnabled = false
+				if CameraGetActive() ~= 2 then
+					CameraSetActive(2)
+				end
+				lastAimBtnPressed = GetTimer()
+			end
+
+			sfp.isAimingCamActive = false
+			sfp.isEnabled = true
+
+			sfp.yaw = UTIL.FixRadians(PedGetHeading(gPlayer) + math.rad(90))
+			sfp.targetYaw = sfp.yaw
+			sfp.pitch = 0
+			sfp.targetPitch = 0
+
+			CameraSetActive(4) -- back to simplefp camera
+		end)
+	--
+	elseif IsButtonBeingPressed(10, 0) then
+		lastAimBtnPressed = GetTimer()
+	end
+end
+
 -- --------------------------------- Public --------------------------------- --
 
 -- Non-static
@@ -533,6 +742,13 @@ function SimpleFirstPerson:SetEnabled(enable)
 		-- end
 
 		self._wasInVehicleLastFrame = PlayerIsInAnyVehicle()
+		local isController = IsUsingJoystick(0)
+		local activateOnFootAutoRotate = self.onFootAutoRotateWithPlayer
+			and not self._wasInRelativeModeLastFrame
+			and isController
+		self._wasInRelativeModeLastFrame = (
+			self.isVehicleRelativeCameraEnabled and self._wasInVehicleLastFrame
+		) or activateOnFootAutoRotate
 
 		-- Reset
 		self.mouseDrivenYawOffset = 0
@@ -612,3 +828,9 @@ function SimpleFirstPerson:ApplyCameraTransform()
 	)
 	CameraAllowChange(false)
 end
+
+-- -------------------------------------------------------------------------- --
+-- Type Definition                                                            --
+-- -------------------------------------------------------------------------- --
+
+---@alias SimpleFirstPerson_Options { enableSprintFOV: boolean, baseFOV: number, sprintFOVOffset: number, sprintFOVInterpolationSpeed: number, isVehicleRelativeCameraEnabled: boolean, maxYawDeviation: number, onFootAutoRotateWithPlayer: boolean, cameraRotationSmoothFactor: number }

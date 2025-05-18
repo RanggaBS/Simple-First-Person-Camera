@@ -40,6 +40,12 @@ function UTIL.GetDirectionalMovement()
 	return leftRight, forwardBackward
 end
 
+---@return number
+function UTIL.GetWholeStickValue()
+	local moveX, moveY = GetStickValue(16, 0), GetStickValue(17, 0)
+	return math.sqrt(moveX ^ 2 + moveY ^ 2)
+end
+
 ---@param a number
 ---@param b number
 ---@return number
@@ -81,11 +87,11 @@ end
 ---@param b number
 ---@param t number
 ---@return number
-function Lerp(a, b, t)
-	return a + (b - a) * t
+function UTIL.Lerp(a, b, t)
+	return t == 0 and a or t == 1 and b or a == b and a or (a + (b - a) * t)
 end
 
-local DIGITS_PRECISION_TOLERANCY = 0.01
+--[[ local DIGITS_PRECISION_TOLERANCY = 0.01
 ---@param a number
 ---@param b number
 ---@param t number
@@ -115,7 +121,7 @@ function UTIL.LerpOptimized(a, b, t)
 	end
 
 	return lerp
-end
+end ]]
 
 local lastSprintPressed = GetTimer()
 local DELAY = 300
