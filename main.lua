@@ -81,6 +81,10 @@ function main()
 					if AreaGetVisible() ~= prevArea then
 						-- Reset camera facing direction
 						SimpleFP.yaw = PedGetHeading(gPlayer) + math.rad(90)
+						SimpleFP.targetYaw = SimpleFP.yaw
+						SimpleFP.pitch = 0
+						SimpleFP.targetPitch = 0
+						SimpleFP.mouseDrivenYawOffset = 0
 					end
 				end
 
